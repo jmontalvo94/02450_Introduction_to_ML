@@ -137,8 +137,12 @@ print(V[0])
 ## Set threshold for variance explained
 threshold = 0.95
 
+# Choose two PCs to plot (the projection)
+i = 0
+j = 1
+
 # Plot variance explained
-plt.figure()
+plt.figure(figsize=(5,5),dpi=90)
 plt.plot(range(1,len(rho)+1),rho,'x-')
 plt.plot(range(1,len(rho)+1),np.cumsum(rho),'o-')
 plt.plot([1,len(rho)],[threshold, threshold],'k--')
@@ -153,6 +157,22 @@ plt.show()
 Z = U*S;
 
 ## Plot projects of PC 1 and PC 2 to X_tilde
-project_plot = sns.scatterplot(Z[:,0],Z[:,1], hue = df_heart_disease.chd_cat)
-project_plot.set_xlabel("PC 1")
-project_plot.set_ylabel("PC 2")
+project_plot = sns.scatterplot(Z[:,i],Z[:,j], hue = df_heart_disease.chd_cat)
+project_plot.set_xlabel("PC "+str(i+1))
+project_plot.set_ylabel("PC "+str(j+1))
+project_plot.set_title('Projection of PCs')
+
+## Plot direction of attribute coefficients
+plt.figure(figsize=(5,5),dpi=90)
+for att in range(V.shape[1]):
+    plt.arrow(0,0, V[att,i], V[att,j])
+    plt.text(V[att,i], V[att,j], attribute_names[att],fontsize=10,bbox=dict(facecolor='blue', alpha=0.5))
+plt.xlim([-1,1])
+plt.ylim([-1,1])
+plt.xlabel('PC'+str(i+1))
+plt.ylabel('PC'+str(j+1))
+# Add a unit circle
+plt.plot(np.cos(np.arange(0, 2*np.pi, 0.01)), 
+     np.sin(np.arange(0, 2*np.pi, 0.01)));
+plt.title('Direction of attribute coefficients')
+plt.axis('equal')
