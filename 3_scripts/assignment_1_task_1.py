@@ -8,6 +8,7 @@ Created on Tue Sep 17 10:05:50 2019
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import seaborn as sns
 from scipy.linalg import svd
 
 ## Set URL for raw data
@@ -20,7 +21,7 @@ df_heart_disease = pd.read_csv(url_raw_data)
 ## Initial data manipulations
 df_heart_disease = df_heart_disease.drop(columns = "row.names", axis = 1) ## erases column 'row.names'. Axis = 1 indicates it is a column rather than row drop.
 #df_heart_disease["famhist"] = df_heart_disease["famhist"].astype('category') ## Set discrete variables to categorial type
-df_heart_disease["chd_cat"] = df_heart_disease["chd"].astype('category') ## Set discrete variables to categorial type
+df_heart_disease["chd_cat"] = df_heart_disease["chd"].astype('category').cat.rename_categories(["No","Yes"]) ## Set discrete variables to categorial type with No and Yes.
 df_heart_disease["famhist_present"] = pd.get_dummies(df_heart_disease.famhist, prefix='famhist_',drop_first=True)
 #df_heart_disease = df_heart_disease.drop(columns = "famhist", axis = 1) ## erases column 'row.names'. Axis = 1 indicates it is a column rather than row drop.
 
@@ -29,6 +30,25 @@ df_heart_disease["famhist_present"] = pd.get_dummies(df_heart_disease.famhist, p
 print("Show content of dataframe")
 print(df_heart_disease.head())
 
+#######################################################
+### STANDARDIZATION OF ATTRIBUTES #####################
+#######################################################
+
+## Start by creating a matric representation of the dataframe (only keep attributes)
+X = df_heart_disease.drop(columns = ["chd","chd_cat","famhist"], axis = 1).to_numpy(dtype=np.float32) ## Type is set to float to allow for math calculations
+
+## Store dimensions of X as local variables
+N = np.shape(X)[0] ## Number of observations
+M = np.shape(X)[1] ## Number of attributes
+
+## Substract mean values from X (create X_tilde)
+X_tilde = X - np.ones((N,1))*X.mean(axis=0)
+
+## Divide by std. deviation from X_tilde
+X_tilde = X_tilde*(1/np.std(X_tilde,0))
+
+## Set attribute names
+attribute_names = df_heart_disease.drop(columns = ["chd","chd_cat","famhist"], axis = 1).columns
 
 #######################################################
 ### MISSING DATA ANALYSIS #############################
@@ -52,11 +72,38 @@ print(round(df_heart_disease.describe(include='category'),0))
 #######################################################
 ### OUTLIER DETECTION  ################################
 #######################################################
-#boxplot(X)
-#xticks(range(1,5),attributeNames)
-#ylabel('cm')
-#title('Fisher\'s Iris data set - boxplot')
-#show()
+plt.boxplot(X_tilde)
+plt.xticks(range(1,M+1),attribute_names, rotation=90)
+plt.ylabel('Standardized value')
+plt.title('African Heart Disease Data - boxplot')
+plt.show()
+
+
+#######################################################
+### CONDITIONAL BOX PLOTS ON CHD  #####################
+#######################################################
+
+## Create a grid of subplots with box plots conditional on chd
+grid_plt = plt.figure(figsize=(10,10),dpi=90)
+grid_plt.subplots_adjust(hspace=0.4, wspace=0.4)
+grid_plt.suptitle('Distribution of features conditional on outcome variable')
+for i,feature in zip(range(1,M+1),attribute_names):
+    ax = grid_plt.add_subplot(3,3,i)
+    if(feature!="famhist_present"):
+        #sns.catplot(y="chd_cat",x=feature, data=df_heart_disease, kind = "swarm",ax=ax); ## Swamp plot instead
+        sns.catplot(y="chd_cat",x=feature, data=df_heart_disease, kind = "box",ax=ax);
+        ax.set_ylabel("Diagnosed with heart disease", fontsize=10)
+    else:
+        sns.countplot(x=feature, data=df_heart_disease,hue="chd_cat",ax=ax)
+        ax.legend().set_visible(False) ## Do not show legend
+        ax.set_ylabel("# of obs.", fontsize=10)
+    ax.set_xlabel(feature, fontsize=12)
+    ax.tick_params(axis='both',labelsize=10)
+
+## Save the grid plot    
+grid_plt.savefig('individual_box_plot_conditional_on_chd.png')
+
+
 
 #######################################################
 ### DISTRIBUTION OF VARIABLES##########################
@@ -73,27 +120,16 @@ print("Correlation Matrix")
 print(round(df_heart_disease.corr(method='pearson'),1))
 
 #######################################################
-### STANDARDIZATION OF ATTRIBUTES #####################
+### PCA ANALYSIS ######################################
 #######################################################
-
-## Start by creating a matric representation of the dataframe (only keep attributes)
-X = df_heart_disease.drop(columns = ["chd","chd_cat"], axis = 1).to_numpy(dtype=np.float32) ## Type is set to float to allow for math calculations
-
-## Store dimensions of X as local variables
-N = np.shape(X)[0] ## Number of observations
-M = np.shape(X)[1] ## Number of attributes
-
-## Substract mean values from X (create X_tilde)
-X_tilde = X - np.ones((N,1))*X.mean(axis=0)
-
-## Divide by std. deviation from X_tilde
-X_tilde = X_tilde*(1/np.std(X_tilde,0))
 
 # PCA by computing SVD of X_tilde
 U,S,V = svd(X_tilde,full_matrices=False)
 
 ## Calculate rho
 rho = (S*S) / (S*S).sum() 
+
+
 
 print("First PCA")
 print(V[0])
@@ -112,3 +148,11 @@ plt.ylabel('Variance explained');
 plt.legend(['Individual','Cumulative','Threshold'])
 plt.grid()
 plt.show()
+
+## Project of eigen values on our feature matrix (X_tilde)
+Z = U*S;
+
+## Plot projects of PC 1 and PC 2 to X_tilde
+project_plot = sns.scatterplot(Z[:,0],Z[:,1], hue = df_heart_disease.chd_cat)
+project_plot.set_xlabel("PC 1")
+project_plot.set_ylabel("PC 2")
