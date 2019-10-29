@@ -130,6 +130,7 @@ U,S,V = svd(X_tilde,full_matrices=False)
 rho = (S*S) / (S*S).sum() 
 
 
+
 print("First PCA")
 print(V[0])
 
