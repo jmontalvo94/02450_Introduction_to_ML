@@ -1,0 +1,4 @@
+H_0;p_value;CI_lower;CI_upper;conclusion
+err_baseline-err_logistic=0;0.003128109;0.02795655;0.125455762;H_0 rejected
+err_2nd_model-err_logistic=0;0.005976947;0.007154533;0.039039253;H_0 rejected
+baseline_model_err-err_2nd_model_err=0;0.02266423;0.008042695;0.09917583;H_0 rejected
