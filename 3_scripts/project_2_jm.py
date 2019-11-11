@@ -114,15 +114,15 @@ apply_linear   = False
 apply_setup_ii = True
 
 ## Regularization options ANN
-min_n_hidden_units = 1 ## The minimum number of hidden units
-max_n_hidden_units = 5 ## The maximum number of hidden units
+min_n_hidden_units = 9 ## The minimum number of hidden units
+max_n_hidden_units = 10 ## The maximum number of hidden units
 
 ## Regularization options Linear Regresssion
 lambda_interval = np.logspace(-1, 3, 30)
 
 ## ANN options
 loss_fn   = torch.nn.MSELoss()
-max_iter  = 5000
+max_iter  = 20000
 n_rep_ann = 1
 
 ## Set K-folded CV options 
@@ -132,6 +132,8 @@ CV_1  = sklearn.model_selection.KFold(n_splits=K_1,shuffle=True, random_state = 
 CV_2  = sklearn.model_selection.KFold(n_splits=K_2,shuffle=True, random_state = random_seed)
 CV_setup_ii = sklearn.model_selection.KFold(n_splits=K_1,shuffle=True, random_state = random_seed + 1) ## Ensures that the CV for setup ii test is never the same randomization as for the estimation CVs
 
+
+#%%
 ## Define holders for outer CV results
 test_error_outer_baseline                = [] ## Store validation error (the inner) of the baseline model
 test_error_outer_linear                  = [] ## Store validation error (the inner) of the baseline model
@@ -141,7 +143,7 @@ optimal_regularization_param_baseline    = []
 optimal_regularization_param_linear      = []
 optimal_regularization_param_ANN         = []
 
-#%%
+
 
 ## Outer loop
 k_outer = 0
@@ -169,7 +171,9 @@ for train_outer_index, test_outer_index in CV_1.split(X):
     ## Validation errors matrices (only for non-baseline models as baseline model does not test different models)
     validation_errors_inner_ANN_matrix         = np.array(np.ones(max_n_hidden_units - min_n_hidden_units + 1)) ## This 1d array is used to vertical stack with validation error 1d arrays for each s KNN model. It is erased once these have been stacked into one matrix.
     validation_errors_inner_linear_matrix      = np.array(np.ones(len(lambda_interval))) ## This 1d array is used to vertical stack with validation error 1d arrays for each s logistic models. It is erased once these have been stacked into one matrix.
+    hidden_units_matrix                        = np.array(np.ones(max_n_hidden_units - min_n_hidden_units + 1)) ## This is used to store the regularization parameter for the ANN 
     
+        
     ## Inner loop
     k_inner=0
     for train_inner_index, test_inner_index in CV_2.split(X_train_outer):
@@ -186,15 +190,16 @@ for train_outer_index, test_outer_index in CV_1.split(X):
             X_test_inner_tensor = torch.tensor(X[test_inner_index,:], dtype=torch.float)
             y_test_inner_tensor = torch.tensor(y[test_inner_index], dtype=torch.uint8)
         
-        ## 'Fit' baseline model (chooses the average value of the observations in the test set)
-        best_inner_model_baseline_tmp = sum(y_train_inner)/float(len(y_train_inner))
-        y_est_test_inner_baseline     = np.ones((y_test_inner.shape[0],1))*best_inner_model_baseline_tmp
+        
+        ## 'Fit' baseline model (simply the unconditional mean value of y)
+        mean_y                        = np.mean(y_train_inner)
+        y_est_test_inner_baseline     = mean_y
         
         ## Calculate validation error over inner test data
-        validation_errors_inner_baseline = np.sum(y_est_test_inner_baseline != y_test_inner) / float(len(y_test_inner))
-                
+        validation_errors_inner_baseline = np.sum((y_est_test_inner_baseline - y_test_inner)**2) / float(len(y_test_inner)) 
+        
         ## Store best fitted model
-        best_inner_model_baseline.append(best_inner_model_baseline_tmp)
+        #best_inner_model_baseline.append(best_inner_model_baseline_tmp)
         
         ## Store accuracy of CV-loop
         error_inner_baseline.append(validation_errors_inner_baseline)
@@ -222,7 +227,7 @@ for train_outer_index, test_outer_index in CV_1.split(X):
         ## Estimate ANN if apply_ANN is true
         if (apply_ANN):
             validation_errors_inner_ANN  = []
-
+            hidden_unit_applied          = []
             for n_hidden_units in range(min_n_hidden_units,max_n_hidden_units + 1):
                 model = lambda: torch.nn.Sequential(
                     torch.nn.Linear(M, n_hidden_units), #M features to H hidden units
@@ -249,22 +254,40 @@ for train_outer_index, test_outer_index in CV_1.split(X):
                 error_rate = (sum(e).type(torch.float)/len(y_test_inner_tensor)).data.numpy()[0]
                 validation_errors_inner_ANN.append(error_rate)
                 
+                ## Add applied hidden units to array
+                hidden_unit_applied.append(n_hidden_units)
+                
             validation_errors_inner_ANN        = np.array(validation_errors_inner_ANN)
-            validation_errors_inner_ANN_matrix = np.vstack((validation_errors_inner_ANN_matrix,validation_errors_inner_ANN))   
+            validation_errors_inner_ANN_matrix = np.vstack((validation_errors_inner_ANN_matrix,validation_errors_inner_ANN))
+            hidden_units_matrix                = np.vstack((hidden_units_matrix,hidden_unit_applied))
+            
+            
             
         ## add 1 to inner counter
         k_inner+=1
         
     ## Estimate generalization error of each model    
-    generalized_error_inner_baseline_model = np.sum(np.multiply(data_validation_length,error_inner_baseline)) * (1/data_outer_train_length)
+    #generalized_error_inner_baseline_model = np.sum(np.multiply(data_validation_length,error_inner_baseline)) * (1/data_outer_train_length)
           
     ## 'Fit' baseline model on outside data (chooses the average value of the observations in the test set)
-    best_outer_model_baseline_tmp = sum(y_train_outer)/float(len(y_train_outer))
-    y_est_test_outer_baseline     = np.ones((y_test_outer.shape[0],1))*best_outer_model_baseline_tmp
+    #best_outer_model_baseline_tmp = sum(y_train_outer)/float(len(y_train_outer))
+    #y_est_test_outer_baseline     = np.ones((y_test_outer.shape[0],1))*best_outer_model_baseline_tmp
       
+    ## 'Fit' baseline model 
+    mean_y                        = np.mean(y_train_outer)
+    y_est_test_outer_baseline     = mean_y     
+    
     ## Estimate the test error (best model from inner fitted on the outer data)
-    test_error_outer_baseline_tmp = np.sum(y_est_test_outer_baseline != y_test_outer) / float(len(y_test_outer))
+    test_error_outer_baseline_tmp = np.sum((y_est_test_outer_baseline - y_test_outer)**2) / float(len(y_test_outer))
     test_error_outer_baseline.append(test_error_outer_baseline_tmp)
+    
+
+    
+    ## Calculate validation error over inner test data
+    validation_errors_inner_baseline = np.sum((y_est_test_inner_baseline - y_test_inner)**2) / float(len(y_test_inner)) 
+    
+    
+    
     
     ## Add length of outer test data
     data_outer_test_length.append(data_outer_test_length_tmp)
@@ -272,24 +295,27 @@ for train_outer_index, test_outer_index in CV_1.split(X):
     ## Find optimal model of ANN (if apply_ANN is true)
     if(apply_ANN):        
         validation_errors_inner_ANN_matrix = np.delete(validation_errors_inner_ANN_matrix,0,0) ## Removes the first 1d array with ones.
+        hidden_units_matrix                = np.delete(hidden_units_matrix,0,0)
         validation_errors_inner_ANN_matrix = np.transpose(validation_errors_inner_ANN_matrix) ## Need to transpose validation_errors_inner_KNN_matrix, such that the dimensions are (20 x 10). That is, a vector for each models performance on the inner loop CV) 
         estimated_inner_test_error_ANN_models = []
         for s in range(0,len(validation_errors_inner_ANN_matrix)):
             tmp_inner_test_error = np.sum(np.multiply(data_validation_length,validation_errors_inner_ANN_matrix[s])) / data_outer_train_length
+            tmp_inner_test_error = np.sum(np.multiply(data_validation_length,validation_errors_inner_ANN_matrix[s])) / data_outer_train_length
+
             estimated_inner_test_error_ANN_models.append(tmp_inner_test_error)
         
         ## Saves the regularization parameter for the best performing KNN model
         lowest_est_inner_error_ANN_models = min(estimated_inner_test_error_ANN_models)
-        optimal_regularization_param_ANN.append(list(estimated_inner_test_error_ANN_models).index(lowest_est_inner_error_ANN_models) + 1) # Plus one since list position starts at 0.
-            
+        index_tmp                         = (list(estimated_inner_test_error_ANN_models).index(lowest_est_inner_error_ANN_models)) # Plus one since list position starts at 0.       
+        optimal_regularization_param_ANN.append(hidden_units_matrix[k_outer][index_tmp])
         
         ## Estimates the test error on outer test data
         model = lambda: torch.nn.Sequential(
-            torch.nn.Linear(M, optimal_regularization_param_ANN[k_outer]), #M features to H hidden units
+            torch.nn.Linear(M, optimal_regularization_param_ANN[k_outer].astype(int)), #M features to H hidden units
             # 1st transfer function, either Tanh or ReLU:
             #torch.nn.ReLU(), 
             torch.nn.Tanh(),   
-            torch.nn.Linear(optimal_regularization_param_ANN[k_outer], 1), # H hidden units to 1 output neuron
+            torch.nn.Linear(optimal_regularization_param_ANN[k_outer].astype(int), 1), # H hidden units to 1 output neuron
             # no final tranfer function, i.e. "linear output"
             )
         
