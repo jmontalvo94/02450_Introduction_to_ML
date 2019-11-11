@@ -304,7 +304,7 @@ for train_outer_index, test_outer_index in CV_1.split(X):
 
             estimated_inner_test_error_ANN_models.append(tmp_inner_test_error)
         
-        ## Saves the regularization parameter for the best performing KNN model
+        ## Saves the regularization parameter for the best performing ANN model
         lowest_est_inner_error_ANN_models = min(estimated_inner_test_error_ANN_models)
         index_tmp                         = (list(estimated_inner_test_error_ANN_models).index(lowest_est_inner_error_ANN_models)) # Plus one since list position starts at 0.       
         optimal_regularization_param_ANN.append(hidden_units_matrix[k_outer][index_tmp])
