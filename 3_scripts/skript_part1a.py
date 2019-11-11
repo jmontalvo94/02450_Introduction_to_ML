@@ -107,6 +107,8 @@ CV = model_selection.KFold(K, shuffle=True)
 
 # Values of lambda
 lambdas = np.power(10.,range(-5,12))
+lambdas = np.array(range(0,210,10))
+
 
 # Initialize variables
 #T = len(lambdas)
@@ -136,11 +138,11 @@ for train_index, test_index in CV.split(X,y):
     # Standardize outer fold based on training set, and save the mean and standard
     # deviations since they're part of the model (they would be needed for
     # making new predictions) - for brevity we won't always store these in the scripts
-    mu[k, :] = np.mean(X_train[:, 1:], 0)
-    sigma[k, :] = np.std(X_train[:, 1:], 0)
+  #  mu[k, :] = np.mean(X_train[:, 1:], 0)
+  #  sigma[k, :] = np.std(X_train[:, 1:], 0)
     
-    X_train[:, 1:] = (X_train[:, 1:] - mu[k, :] ) / sigma[k, :] 
-    X_test[:, 1:] = (X_test[:, 1:] - mu[k, :] ) / sigma[k, :] 
+  #  X_train[:, 1:] = (X_train[:, 1:] - mu[k, :] ) / sigma[k, :] 
+  #  X_test[:, 1:] = (X_test[:, 1:] - mu[k, :] ) / sigma[k, :] 
     
     Xty = X_train.T @ y_train
     XtX = X_train.T @ X_train

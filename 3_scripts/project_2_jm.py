@@ -13,7 +13,7 @@ import sklearn
 from sklearn.neighbors import KNeighborsClassifier, DistanceMetric
 from sklearn.linear_model import LogisticRegression, LinearRegression
 from sklearn.dummy import DummyClassifier
-from toolbox_02450 import train_neural_net, draw_neural_net, visualize_decision_boundary,correlated_ttest
+from toolbox_02450 import train_neural_net, draw_neural_net, visualize_decision_boundary,correlated_ttest, rlr_validate
 import torch
 #import pdb
 from scipy import stats ## We use the mode function in the stats module
@@ -79,8 +79,8 @@ X = X_tilde
 #######################################################
 
 ## Define attribute names
-attribute_names = ['tobacco','ldl','adiposity','typea','obesity','alcohol','age']
-class_name      = ['sbp']
+attribute_names = ['sbp','tobacco','chd','adiposity','typea','obesity','alcohol','age','famhist_present']
+class_name      = ['ldl']
 
 ## Start by creating a matric representation of the dataframe (only keep attributes)
 X = df_heart_disease[attribute_names].to_numpy(dtype=np.float32) ## Type is set to float to allow for math calculations
@@ -108,17 +108,18 @@ print_cv_outer_loop_text = True
 ## Select the applied classifiers
 apply_baseline = False
 apply_ANN      = True ## if set to True a ANN model is applied to the data. Remember to set regularization options
-apply_linear   = False
+apply_linear   = True
 
 ## Select statistic test type
 apply_setup_ii = True
 
 ## Regularization options ANN
 min_n_hidden_units = 9 ## The minimum number of hidden units
-max_n_hidden_units = 10 ## The maximum number of hidden units
+max_n_hidden_units = 9 ## The maximum number of hidden units
 
 ## Regularization options Linear Regresssion
-lambda_interval = np.logspace(-1, 3, 30)
+#lambda_interval = np.logspace(0, 3, 30)     ## Value from 0 to 1000 seems reasonble according to estimates in the previous sub task.
+lambda_interval = np.array(range(0,210,10)) ## Value from 0 to 1000 seems reasonble according to estimates in the previous sub task.
 
 ## ANN options
 loss_fn   = torch.nn.MSELoss()
@@ -164,15 +165,16 @@ for train_outer_index, test_outer_index in CV_1.split(X):
     data_outer_test_length_tmp = float(len(y_test_outer))
     
     ## Define holders for inner CV results
-    best_inner_model_baseline = []
-    error_inner_baseline      = [] ## Store validation error (the inner)
-    data_validation_length    = [] ## Store the length of D^val 
+    best_inner_model_baseline      = []
+    error_inner_baseline           = [] ## Store validation error (the inner)
+    data_validation_length         = [] ## Store the length of D^val 
+
     
     ## Validation errors matrices (only for non-baseline models as baseline model does not test different models)
     validation_errors_inner_ANN_matrix         = np.array(np.ones(max_n_hidden_units - min_n_hidden_units + 1)) ## This 1d array is used to vertical stack with validation error 1d arrays for each s KNN model. It is erased once these have been stacked into one matrix.
     validation_errors_inner_linear_matrix      = np.array(np.ones(len(lambda_interval))) ## This 1d array is used to vertical stack with validation error 1d arrays for each s logistic models. It is erased once these have been stacked into one matrix.
     hidden_units_matrix                        = np.array(np.ones(max_n_hidden_units - min_n_hidden_units + 1)) ## This is used to store the regularization parameter for the ANN 
-    
+    regularization_param_linear_matrix         = np.array(np.ones(len(lambda_interval)))
         
     ## Inner loop
     k_inner=0
@@ -207,22 +209,28 @@ for train_outer_index, test_outer_index in CV_1.split(X):
         ## Store data validation length
         data_validation_length.append(float(len(y_test_inner)))
         
-# =============================================================================
-#         ## Estimate linear regression if apply_linear is true
-#         if (apply_linear):
-#             validation_errors_inner_logistics  = []
-#             for s in range(0, len(lambda_interval)):
-#                 model       = LinearRegression(penalty='l2', C=1/lambda_interval[s], solver = 'liblinear')
-#                 model       = model.fit(X_train_inner, y_train_inner.squeeze())            
-#                 y_est_inner = model.predict(X_test_inner)
-#                 
-#                 validation_errors_inner_linear_tmp = np.sum(y_est_inner != y_test_inner.squeeze()) / float(len(y_test_inner))
-#                 validation_errors_inner_linear.append(validation_errors_inner_linear_tmp)
-#             
-#             validation_errors_inner_linear = np.array(validation_errors_inner_linear)
-#             validation_errors_inner_linear_matrix = np.vstack((validation_errors_inner_linear_matrix,validation_errors_inner_linear))
-# 
-# =============================================================================
+
+         ## Estimate linear regression if apply_linear is true
+        if (apply_linear):
+         
+             
+            validation_errors_inner_linear  = []
+            regularization_param_linear     = []
+             
+            for lambda_val in lambda_interval:
+            ## Use linear model with regularization parameter (aka ridge model (see: https://scikit-learn.org/stable/modules/linear_model.html))
+                model = sklearn.linear_model.Ridge(alpha=lambda_val)
+                model = model.fit(X_train_inner,y_train_inner)
+                y_est_test_inner_linear = model.predict(X_test_inner)
+                 
+                error      = (y_est_test_inner_linear - y_test_inner)**2
+                error_rate =  np.sum(error) / len(y_test_inner)
+                validation_errors_inner_linear.append(error_rate)
+                regularization_param_linear.append(lambda_val)
+                
+            validation_errors_inner_linear        = np.array(validation_errors_inner_linear)
+            validation_errors_inner_linear_matrix = np.vstack((validation_errors_inner_linear_matrix,validation_errors_inner_linear))
+            regularization_param_linear_matrix    = np.vstack((regularization_param_linear_matrix,regularization_param_linear))     
                 
         ## Estimate ANN if apply_ANN is true
         if (apply_ANN):
@@ -293,7 +301,7 @@ for train_outer_index, test_outer_index in CV_1.split(X):
     data_outer_test_length.append(data_outer_test_length_tmp)
     
     ## Find optimal model of ANN (if apply_ANN is true)
-    if(apply_ANN):        
+    if (apply_ANN):        
         validation_errors_inner_ANN_matrix = np.delete(validation_errors_inner_ANN_matrix,0,0) ## Removes the first 1d array with ones.
         hidden_units_matrix                = np.delete(hidden_units_matrix,0,0)
         validation_errors_inner_ANN_matrix = np.transpose(validation_errors_inner_ANN_matrix) ## Need to transpose validation_errors_inner_KNN_matrix, such that the dimensions are (20 x 10). That is, a vector for each models performance on the inner loop CV) 
@@ -337,34 +345,35 @@ for train_outer_index, test_outer_index in CV_1.split(X):
         error_rate = (sum(e).type(torch.float)/len(y_test_outer_tensor)).data.numpy()[0]
         test_errors_outer_ANN.append(error_rate)
 
-# =============================================================================
-#     if(apply_linear):
-#          validation_errors_inner_logistics_matrix = np.delete(validation_errors_inner_logistics_matrix,0,0) ## Removes the first 1d array with ones.
-#          # Investigate relationsship between lampda and validation errors (tmp's first element is the lampda value. The second element is the validation error)
-#          #tmp = np.vstack((lambda_interval,np.mean(validation_errors_inner_logistics_matrix,axis=0))).T
-#   
-# 
-#          ## calculates the test error for each model s of the linear models (accross s lambda reg. parameters) 
-#          validation_errors_inner_logistics_matrix   = np.transpose(validation_errors_inner_logistics_matrix)
-#          estimated_inner_test_error_logistic_models = []
-#          for s in range(0,len(validation_errors_inner_logistics_matrix)):
-#              tmp_inner_test_error = np.sum(np.multiply(data_validation_length,validation_errors_inner_logistics_matrix[s])) / data_outer_train_length
-#              estimated_inner_test_error_logistic_models.append(tmp_inner_test_error)
-#          
-#          
-#          ## Saves the regularization parameter for the best performing linear model
-#          lowest_est_inner_error_linear_models = min(estimated_inner_test_error_linear_models)
-#          index_lambda = list(estimated_inner_test_error_linear_models).index(lowest_est_inner_error_linear_models) # Plus one since list position starts at 0.
-#          optimal_regularization_param_linear.append(lambda_interval[index_lambda])         
-#         
-#          ## Estimate the test error on the outer test data
-#          model                = LogisticRegression(penalty='l2', C=1/lambda_interval[index_lambda], solver = 'lbfgs')
-#          model                = model.fit(X_train_outer, y_train_outer.squeeze())            
-#          y_est_outer_linear = model.predict(X_test_outer)
-#          
-#          test_errors_outer_linear_tmp = np.sum(y_est_outer_linear != y_test_outer.squeeze()) / float(len(y_test_outer))
-#          test_errors_outer_linear.append(test_errors_outer_linear_tmp)
-# =============================================================================
+
+        if (apply_linear):
+          validation_errors_inner_linear_matrix = np.delete(validation_errors_inner_linear_matrix,0,0) ## Removes the first 1d array with ones.
+          # Investigate relationsship between lampda and validation errors (tmp's first element is the lampda value. The second element is the validation error)
+          #tmp = np.vstack((lambda_interval,np.mean(validation_errors_inner_logistics_matrix,axis=0))).T
+   
+
+          ## calculates the test error for each model s of the linear models (accross s lambda reg. parameters) 
+          validation_errors_inner_linear_matrix   = np.transpose(validation_errors_inner_linear_matrix)
+          estimated_inner_test_error_linear_models = []
+          for s in range(0,len(validation_errors_inner_linear_matrix)):
+              tmp_inner_test_error = np.sum(np.multiply(data_validation_length,validation_errors_inner_linear_matrix[s])) / data_outer_train_length
+              estimated_inner_test_error_linear_models.append(tmp_inner_test_error)
+          
+          
+          ## Saves the regularization parameter for the best performing linear model
+          lowest_est_inner_error_linear_models = min(estimated_inner_test_error_linear_models)
+          index_lambda = list(estimated_inner_test_error_linear_models).index(lowest_est_inner_error_linear_models) # Plus one since list position starts at 0.
+          optimal_regularization_param_linear.append(lambda_interval[index_lambda])         
+         
+          ## Estimate the test error on the outer test data
+          model = sklearn.linear_model.Ridge(alpha=optimal_regularization_param_linear[k_outer])
+          model = model.fit(X_train_outer,y_train_outer)
+          y_est_test_outer_linear = model.predict(X_test_outer)
+         
+          error      = (y_est_test_outer_linear - y_test_outer)**2
+          error_rate =  np.sum(error) / len(y_test_outer)
+          test_error_outer_linear.append(error_rate)  
+         
              
     ## Add 1 to outer counter
     k_outer+=1
@@ -375,11 +384,11 @@ print('est gen error of baseline model: ' +str(round(generalization_error_baseli
 if (apply_ANN):
     generalization_error_ANN_model = np.sum(np.multiply(test_errors_outer_ANN,data_outer_test_length)) * (1/N)
     print('est gen error of ANN model: ' +str(round(generalization_error_ANN_model, ndigits=3)))    
-# =============================================================================
-# if (apply_linear):
-#     generalization_error_logistic_model = np.sum(np.multiply(test_errors_outer_linear,data_outer_test_length)) * (1/N)
-#     print('est gen error of linear model: ' +str(round(generalization_error_linear_model, ndigits=3)))
-# =============================================================================
+
+if (apply_linear):
+    generalization_error_linear_model = np.sum(np.multiply(test_error_outer_linear,data_outer_test_length)) * (1/N)
+    print('est gen error of linear model: ' +str(round(generalization_error_linear_model, ndigits=3)))
+
 
 #%%
     
