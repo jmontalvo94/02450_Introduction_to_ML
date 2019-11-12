@@ -1,0 +1,4 @@
+H_0,p_value,CI_lower,CI_upper,conclusion,
+err_baseline-err_linear=0,0.000549919,0.49010779,1.240025874,H_0 rejected,0.001 & 0.491 & 1.241 & H_0 rejected \\
+err_ANN-err_linear=0,0.68816693,-0.069378232,0.100512609,H_0 not rejected,0.689 & -0.07 & 0.101 & H_0 not rejected \\
+err_baseline-err_ANN=0,0.001230605,0.434755987,1.2642433,H_0 rejected,0.002 & 0.435 & 1.265 & H_0 rejected \\
