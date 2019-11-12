@@ -114,8 +114,8 @@ apply_linear   = True
 apply_setup_ii = True
 
 ## Regularization options ANN
-min_n_hidden_units = 9 ## The minimum number of hidden units
-max_n_hidden_units = 9 ## The maximum number of hidden units
+min_n_hidden_units = 1 ## The minimum number of hidden units
+max_n_hidden_units = 3 ## The maximum number of hidden units
 
 ## Regularization options Linear Regresssion
 #lambda_interval = np.logspace(0, 3, 30)     ## Value from 0 to 1000 seems reasonble according to estimates in the previous sub task.
@@ -123,12 +123,12 @@ lambda_interval = np.array(range(0,210,10)) ## Value from 0 to 1000 seems reason
 
 ## ANN options
 loss_fn   = torch.nn.MSELoss()
-max_iter  = 20000
+max_iter  = 50000
 n_rep_ann = 1
 
 ## Set K-folded CV options 
-K_1   = 2 # Number of outer loops
-K_2   = 2 # Number of inner loops
+K_1   = 10 # Number of outer loops
+K_2   = 10 # Number of inner loops
 CV_1  = sklearn.model_selection.KFold(n_splits=K_1,shuffle=True, random_state = random_seed)
 CV_2  = sklearn.model_selection.KFold(n_splits=K_2,shuffle=True, random_state = random_seed)
 CV_setup_ii = sklearn.model_selection.KFold(n_splits=K_1,shuffle=True, random_state = random_seed + 1) ## Ensures that the CV for setup ii test is never the same randomization as for the estimation CVs
@@ -143,8 +143,6 @@ data_outer_test_length                   = []
 optimal_regularization_param_baseline    = []
 optimal_regularization_param_linear      = []
 optimal_regularization_param_ANN         = []
-
-
 
 ## Outer loop
 k_outer = 0
@@ -400,13 +398,13 @@ df_output_table.index.name = "Outer fold"
    
     
 if(apply_ANN):
-    df_output_table.columns                = ['test_data_size','n_hidden_units','ANN_test_error','lambda','Logistic_test_error','baseline_test_error']
+    df_output_table.columns                = ['test_data_size','n_hidden_units','ANN_test_error','lambda','Linear_test_error','baseline_test_error']
     optimal_regularization_param_ANN.append('')
     optimal_regularization_param_linear.append('')
     data_outer_test_length.append('')
     col_2                                  = list(np.array(test_errors_outer_ANN).round(3)*100)
     col_2.append(round(generalization_error_ANN_model*100,ndigits=1))
-    col_4                                  = list(np.array(test_errors_outer_linear).round(3)*100)
+    col_4                                  = list(np.array(test_error_outer_linear).round(3)*100)
     col_4.append(round(generalization_error_linear_model*100,ndigits=1))    
     col_5                                  = list(np.array(test_error_outer_baseline).round(3)*100)
     col_5.append(round(generalization_error_baseline_model*100,ndigits=1))       
@@ -416,16 +414,25 @@ if(apply_ANN):
     df_output_table['n_hidden_units']      = optimal_regularization_param_ANN
     df_output_table['ANN_test_error']      = col_2
     df_output_table['lambda']              = optimal_regularization_param_linear
-    df_output_table['Linear_test_error'] = col_4
+    df_output_table['Linear_test_error']   = col_4
     df_output_table['baseline_test_error'] = col_5
     
 
 ## Export as csv
-df_output_table.to_csv('Regression_summary_table.csv')
+df_output_table.to_csv('Regression_summary_table_50000_10.csv')
 
 #%%
 
 ### Statistical Test Evaluation (SETUP II)
+
+## Statistical test settings
+loss_in_r_function = 2 ## This implies the loss is squared in the r_j formula of box 11.4.1 
+r_baseline_vs_linear  = []                 ## The list to keep the r test size 
+r_baseline_vs_ANN = []                 ## The list to keep the r test size 
+r_ANN_vs_linear = []                 ## The list to keep the r test size 
+alpha_t_test            = 0.05
+rho_t_test              = 1/K_1
+
 if(apply_setup_ii):
     most_common_lambda    = stats.mode(optimal_regularization_param_linear).mode[0].astype('float64')    
     y_true = []
@@ -442,21 +449,21 @@ if(apply_setup_ii):
         X_test_tensor = torch.tensor(X[test_index,:], dtype=torch.float)
         y_test_tensor = torch.tensor(y[test_index], dtype=torch.uint8)
         
-        model_baseline = stats.mode(y_train).mode[0][0]
-        model_logistic = sklearn.linear_model.LogisticRegression(penalty='l2', C=1/most_common_lambda, solver = 'lbfgs').fit(X_train,y_train.squeeze())
+        model_baseline = np.mean(y_train)      
+        model_linear = sklearn.linear_model.Ridge(alpha=most_common_lambda).fit(X_train,y_train.squeeze())
         
         yhat_baseline  = np.ones((y_test.shape[0],1))*model_baseline.squeeze()
-        yhat_logistic  = model_logistic.predict(X_test).reshape(-1,1) ## use reshape to ensure it is a nested array
+        yhat_linear  = model_linear.predict(X_test).reshape(-1,1) ## use reshape to ensure it is a nested array
             
         if(apply_ANN):
-            most_common_regu_ANN  = stats.mode(optimal_regularization_param_ANN).mode[0].astype('float64')
+            most_common_regu_ANN  = 1
             model_second = lambda: torch.nn.Sequential(
                                     torch.nn.Linear(M, most_common_regu_ANN), #M features to H hidden units
                                     # 1st transfer function, either Tanh or ReLU:
                                     #torch.nn.ReLU(), 
                                     torch.nn.Tanh(),   
                                     torch.nn.Linear(most_common_regu_ANN, 1), # H hidden units to 1 output neuron
-                                    torch.nn.Sigmoid() # final tranfer function
+                                    # no final tranfer function, i.e. "linear output"
                                     )
         
             ## Run optimization
@@ -466,45 +473,46 @@ if(apply_setup_ii):
                                                y=y_train_tensor,
                                                n_replicates=n_rep_ann,
                                                max_iter=max_iter)
-            # Determine estimated class labels for test set
-            y_sigmoid           = net(X_test_tensor) # activation of final note, i.e. prediction of network
-            y_hat_second_model = y_sigmoid > .5 # threshold output of sigmoidal function
             
+            # Determine estimated regression value for test set
+            yhat_ANN = net(X_test_tensor)
+            yhat_ANN = yhat_ANN.detach().numpy()
+        
         ## Add true classes and store estimated classes    
         y_true.append(y_test)
-        yhat.append( np.concatenate([yhat_baseline, yhat_logistic,y_hat_second_model], axis=1) )
+        yhat.append(np.concatenate([yhat_baseline, yhat_linear,yhat_ANN], axis=1) )
         
         ## Compute the r test size and store it
-        r_baseline_vs_logistic.append( np.mean( np.abs( yhat_baseline-y_test ) ** loss_in_r_function - np.abs( yhat_logistic-y_test) ** loss_in_r_function ) )
-        r_baseline_vs_sec_model.append( np.mean( np.abs( yhat_baseline-y_test ) ** loss_in_r_function - np.abs( y_hat_second_model-y_test) ** loss_in_r_function ) )
-        r_sec_model_vs_logistic.append( np.mean( np.abs( y_hat_second_model-y_test ) ** loss_in_r_function - np.abs( yhat_logistic-y_test) ** loss_in_r_function ) )
+        r_baseline_vs_linear.append( np.mean( np.abs( yhat_baseline-y_test ) ** loss_in_r_function - np.abs( yhat_linear-y_test) ** loss_in_r_function ) )
+        r_baseline_vs_ANN.append( np.mean( np.abs( yhat_baseline-y_test ) ** loss_in_r_function - np.abs( yhat_ANN-y_test) ** loss_in_r_function ) )
+        r_ANN_vs_linear.append( np.mean( np.abs( yhat_ANN-y_test ) ** loss_in_r_function - np.abs( yhat_linear-y_test) ** loss_in_r_function ) )
         
         ## add to counter
         k += 1
 
 
     ## Baseline vs logistic regression    
-    p_setupII_base_vs_log, CI_setupII_base_vs_log = correlated_ttest(r_baseline_vs_logistic, rho_t_test, alpha=alpha_t_test)
+    p_setupII_base_vs_linear, CI_setupII_base_vs_linear = correlated_ttest(r_baseline_vs_linear, rho_t_test, alpha=alpha_t_test)
     
     ## Baseline vs 2nd model    
-    p_setupII_base_vs_sec_model, CI_setupII_base_vs_sec_model = correlated_ttest(r_baseline_vs_sec_model, rho_t_test, alpha=alpha_t_test)
+    p_setupII_base_vs_ANN, CI_setupII_base_vs_ANN = correlated_ttest(r_baseline_vs_ANN, rho_t_test, alpha=alpha_t_test)
     
     ## Logistic regression vs 2nd model    
-    p_setupII_log_vs_sec_model, CI_setupII_log_vs_sec_model = correlated_ttest(r_sec_model_vs_logistic, rho_t_test, alpha=alpha_t_test)
+    p_setupII_ANN_vs_linear, CI_setupII_ANN_vs_linear = correlated_ttest(r_ANN_vs_linear, rho_t_test, alpha=alpha_t_test)
 
     ## Create output table for statistic tests
     df_output_table_statistics = pd.DataFrame(np.ones((3,5)), columns = ['H_0','p_value','CI_lower','CI_upper','conclusion'])
-    df_output_table_statistics[['H_0']] = ['err_baseline-err_logistic=0','err_2nd_model-err_logistic=0','baseline_model_err-err_2nd_model_err=0']
-    df_output_table_statistics[['p_value']]         = [p_setupII_base_vs_log,p_setupII_log_vs_sec_model,p_setupII_base_vs_sec_model]
-    df_output_table_statistics[['CI_lower']]        = [CI_setupII_base_vs_log[0],CI_setupII_log_vs_sec_model[0],CI_setupII_base_vs_sec_model[0]]
-    df_output_table_statistics[['CI_upper']]        = [CI_setupII_base_vs_log[1],CI_setupII_log_vs_sec_model[1],CI_setupII_base_vs_sec_model[1]]
+    df_output_table_statistics[['H_0']] = ['err_baseline-err_linear=0','err_ANN-err_linear=0','err_baseline-err_ANN=0']
+    df_output_table_statistics[['p_value']]         = [p_setupII_base_vs_linear,p_setupII_ANN_vs_linear,p_setupII_base_vs_ANN]
+    df_output_table_statistics[['CI_lower']]        = [CI_setupII_base_vs_linear[0],CI_setupII_ANN_vs_linear[0],CI_setupII_base_vs_ANN[0]]
+    df_output_table_statistics[['CI_upper']]        = [CI_setupII_base_vs_linear[1],CI_setupII_ANN_vs_linear[1],CI_setupII_base_vs_ANN[1]]
     rejected_null                                   = (df_output_table_statistics.loc[:,'p_value']<alpha_t_test)
     df_output_table_statistics.loc[rejected_null,'conclusion']   = 'H_0 rejected'
     df_output_table_statistics.loc[~rejected_null,'conclusion']  = 'H_0 not rejected'
     df_output_table_statistics                      = df_output_table_statistics.set_index('H_0')
     
     ## Export df as csv
-    df_output_table_statistics.to_csv('assignment_2_statistic_test.csv',encoding='UTF-8')
+    df_output_table_statistics.to_csv('Regression_statistic_test_50000_10.csv',encoding='UTF-8')
 
 #%%
 #######################################################
