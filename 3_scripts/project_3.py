@@ -106,13 +106,15 @@ for var in categorical_attributes_names:
 X = df_binarized.to_numpy(dtype=np.int32)
 
 
-
+# Transform binarized data to label values
 T = mat2transactions(X, labels = list(df_binarized.columns))
 
+# find association rules with apriory algorithm
 rules = apriori(T, min_support=0.05, min_confidence=.6)
-y_itemsets = ['chd_no','chd_yes']
-y_itemsets = ['chd_yes']
+y_itemsets   = ['chd_yes']
 df_chd_rules = apriori_rules_as_df(rules,y_itemsets)
+
+## Save df table as latex format
 with pd.option_context("max_colwidth",1000):
     latex_table  = df_chd_rules.to_latex(index=False, column_format='p{7.5cm}rrrr')
 with open('association_rules_table.tex','w') as tf:
