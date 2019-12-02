@@ -2,7 +2,7 @@
 """
 Created on Tue Nov 26 14:26:57 2019
 
-@author: Emil Chrisander, Julian Böhm, and Jorge M. Arvizu
+@author: Emil Chrisander, Julian Böhm, and Jorge Montalvo Arvizu
 """
 
 import pandas as pd
@@ -13,6 +13,8 @@ from apyori import apriori
 from toolbox_02450 import clusterplot, clusterval
 from scipy.cluster.hierarchy import linkage, fcluster, dendrogram
 from scipy.linalg import svd
+from sklearn.mixture import GaussianMixture
+from sklearn import model_selection
 
 ## Set URL for raw data
 url_raw_data = "https://drive.google.com/uc?export=download&id=1DEmiVdf5UGOo8lqNvNiiHqJQuiNCgxc2" ## This is a download url for a text file located on google drive. The original dataset is only available as a .rdata file (r data file). Thus, we have downloaded a text version and uploaded to a google drive server instead. 
@@ -44,7 +46,7 @@ class_name               = ['chd']
 
 ## Start by creating a matric representation of the dataframe (only keep attributes)
 X = df_heart_disease[attribute_names].to_numpy(dtype=np.float32) ## Type is set to float to allow for math calculations
-y = df_heart_disease[class_name].to_numpy(dtype=np.float32)
+y = df_heart_disease[class_name].to_numpy(dtype=np.float32).squeeze()
 # X = np.delete(X,-1,axis=1)
 
 oneK = True
@@ -80,9 +82,6 @@ Methods = ['single', 'complete', 'average', 'ward']
 Rand = np.zeros((len(Methods),))
 Jaccard = np.zeros((len(Methods),))
 NMI = np.zeros((len(Methods),))
-unique = np.zeros((len(Methods),))
-counts = np.zeros((len(Methods),))
-
 
 Z = linkage(X, method=Method, metric=Metric)
 
@@ -94,22 +93,20 @@ clusterplot(X, cls.reshape(cls.shape[0],1), y=y)
 unique, counts = np.unique(cls, return_counts=True)
 
 # Display dendrogram
-max_display_levels=10
+max_display_levels=2
 plt.figure(2,figsize=(10,4))
 dendrogram(Z, truncate_mode='level', p=max_display_levels)
-
 plt.show()
 
 # Calculate validities
-
-y=y.flatten()
 for m in range(len(Methods)):
     # run hierarchical clustering:
     Z = linkage(X, method=Methods[m], metric=Metric)
     Maxclust = 2
     cls = fcluster(Z, criterion='maxclust', t=Maxclust)
     # compute cluster validities:
-    Rand[m], Jaccard[m], NMI[m] = clusterval(y,cls) 
+    Rand[m], Jaccard[m], NMI[m] = clusterval(y,cls)
+    
         
 # Plot results:
 
@@ -132,6 +129,8 @@ rho = (S*S) / (S*S).sum()
 
 print("First PCA")
 print(V[0])
+print("Second PCA")
+print(V[1])
 
 ## Set threshold for variance explained
 threshold = 0.95
@@ -161,8 +160,132 @@ project_plot.set_xlabel("PC "+str(i+1))
 project_plot.set_ylabel("PC "+str(j+1))
 project_plot.set_title('Projection of PCs')
 
-plt.figure(6)
-clusterplot(Z, cls.reshape(cls.shape[0],1), y=y)
+# Gaussian Mixture Model
+
+# Range of K's to try
+KRange = range(1,11)
+T = len(KRange)
+
+covar_type = 'full'       # 'full' or 'diag'
+reps = 10                 # number of fits with different initalizations, best result will be kept
+init_procedure = 'kmeans' # 'kmeans' or 'random'
+
+# Allocate variables
+BIC = np.zeros((T,))
+AIC = np.zeros((T,))
+CVE = np.zeros((T,))
+
+# K-fold crossvalidation
+CV = model_selection.KFold(n_splits=10,shuffle=True)
+
+for t,K in enumerate(KRange):
+        print('Fitting model for K={0}'.format(K))
+
+        # Fit Gaussian mixture model
+        gmm = GaussianMixture(n_components=K, covariance_type=covar_type, 
+                              n_init=reps, init_params=init_procedure,
+                              tol=1e-6, reg_covar=1e-6).fit(X)
+        
+        # Get BIC and AIC
+        BIC[t,] = gmm.bic(X)
+        AIC[t,] = gmm.aic(X)
+
+        # For each crossvalidation fold
+        for train_index, test_index in CV.split(X):
+
+            # extract training and test set for current CV fold
+            X_train = X[train_index]
+            X_test = X[test_index]
+
+            # Fit Gaussian mixture model to X_train
+            gmm = GaussianMixture(n_components=K, covariance_type=covar_type, n_init=reps).fit(X_train)
+
+            # compute negative log likelihood of X_test
+            CVE[t] += -gmm.score_samples(X_test).sum()
+            
+
+# Plot results
+
+plt.figure(7); 
+plt.plot(KRange, BIC,'-*b')
+plt.plot(KRange, AIC,'-xr')
+plt.plot(KRange, 2*CVE,'-ok')
+plt.legend(['BIC', 'AIC', 'Crossvalidation'])
+plt.xlabel('K')
+plt.savefig('CV.png')
+plt.show()
+
+
+# When K is selected
+
+# Number of clusters
+K = 2
+cov_type = 'full' # e.g. 'full' or 'diag'
+
+# define the initialization procedure (initial value of means)
+initialization_method = 'kmeans'
+
+# number of fits with different initalizations, best result will be kept
+reps = 10
+
+# Fit Gaussian mixture model
+gmm = GaussianMixture(n_components=K, covariance_type=cov_type, n_init=reps, 
+                      tol=1e-6, reg_covar=1e-6, init_params=initialization_method).fit(X)
+
+# extract cluster labels
+cls = gmm.predict(X)    
+
+# extract cluster centroids (means of gaussians)
+cds = gmm.means_        
+
+# extract cluster shapes (covariances of gaussians)
+covs = gmm.covariances_
+
+if cov_type.lower() == 'diag':
+    new_covs = np.zeros([K,M,M])    
+    
+    count = 0    
+    for elem in covs:
+        temp_m = np.zeros([M,M])
+        new_covs[count] = np.diag(elem)
+        count += 1
+
+    covs = new_covs
+
+# Plot results:
+plt.figure(figsize=(14,9))
+idx = [0,1] # feature index, choose two features to use as x and y axis in the plot
+clusterplot(X[:,idx], clusterid=cls, centroids=cds[:,idx], y=y, covars=covs[:,idx,:][:,:,idx])
+plt.savefig('K2.png')
+plt.show()
+
+## Plot projects of PC 1 and PC 2 to X_tilde
+project_plot = sns.scatterplot(Z[:,i],Z[:,j], hue = df_heart_disease.chd_cat, style = cls)
+project_plot.set_xlabel("PC "+str(i+1))
+project_plot.set_ylabel("PC "+str(j+1))
+project_plot.set_title('Projection of PCs')
+
+RandGMM = np.zeros((3,))
+JaccardGMM = np.zeros((3,))
+NMIGMM = np.zeros((3,))
+
+#compute cluster validities:
+unique, counts = np.unique(cls, return_counts=True)
+RandGMM[0], JaccardGMM[0], NMIGMM[0] = clusterval(y,cls)
+
+# run hierarchical clustering and compare with GMM:
+Z = linkage(X, method='ward', metric=Metric)
+Maxclust = 2
+clsH = fcluster(Z, criterion='maxclust', t=Maxclust)
+unique, counts = np.unique(clsH, return_counts=True)
+RandGMM[1], JaccardGMM[1], NMIGMM[1] = clusterval(y,clsH)
+RandGMM[2], JaccardGMM[2], NMIGMM[2] = clusterval(cls,clsH)
+
+# Display dendrogram
+max_display_levels=10
+plt.figure(8,figsize=(10,4))
+dendrogram(Z, truncate_mode='level', p=max_display_levels)
+plt.show()
 
 #%%
 #######################################################
