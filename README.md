@@ -5,7 +5,7 @@ This repository is intended for the group assignments of the course '02450 - Int
 The project is coded in [Python 3.7.3](https://www.python.org/)
 
 ## Project
-Over the course, we tried different Machine Learning techniques to the South African Heart Disease [dataset](https://web.stanford.edu/~hastie/ElemStatLearn/datasets/SAheart.data):
+Over the course, we applied the following Machine Learning techniques to the South African Heart Disease [dataset](https://web.stanford.edu/~hastie/ElemStatLearn/datasets/SAheart.data):
 * Principal Component Analysis
 * Linear Regression
 * Feed-forward Artificial Neural Network Regression
